@@ -84,6 +84,43 @@ func (c *Client) SellerCentralClient() *resty.Client { return c.sellerCentralCli
 // 仅在配置了 Region 时有意义，未配置时它的 BaseURL 与 SellerCentralClient() 相同但不带 region cookie。
 func (c *Client) RegionClient() *resty.Client { return c.regionClient }
 
+// ResponseHook 响应钩子签名，与 resty.ResponseMiddleware 一致。
+// hook 在请求收到响应后、result 解析完成后被调用；返回 error 会被作为请求错误抛出。
+type ResponseHook func(c *resty.Client, resp *resty.Response) error
+
+// OnResponse 在所有底层 resty 客户端（OAuth/SellerCentral/Region）上注册响应钩子。
+// 可多次调用，hook 按注册顺序执行。常用于：审计日志、上报、统一鉴权失效检测等。
+//
+//	client.OnResponse(func(_ *resty.Client, r *resty.Response) error {
+//	    log.Printf("[%d] %s %s", r.StatusCode(), r.Request.Method, r.Request.URL)
+//	    return nil
+//	})
+func (c *Client) OnResponse(hook ResponseHook) *Client {
+	if hook == nil {
+		return c
+	}
+	mw := resty.ResponseMiddleware(hook)
+	c.oAuthClient.OnAfterResponse(mw)
+	c.sellerCentralClient.OnAfterResponse(mw)
+	c.regionClient.OnAfterResponse(mw)
+	return c
+}
+
+// OnError 在所有底层 resty 客户端上注册错误钩子（请求/响应失败时回调）。
+//
+//	client.OnError(func(req *resty.Request, err error) {
+//	    log.Printf("request error: %s %v", req.URL, err)
+//	})
+func (c *Client) OnError(hook func(req *resty.Request, err error)) *Client {
+	if hook == nil {
+		return c
+	}
+	c.oAuthClient.OnError(hook)
+	c.sellerCentralClient.OnError(hook)
+	c.regionClient.OnError(hook)
+	return c
+}
+
 func NewClient(config config.TemuBrowserConfig) *Client {
 	var logger resty.Logger
 	var logLevel = new(slog.LevelVar) // 默认 INFO
