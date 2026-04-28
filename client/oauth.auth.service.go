@@ -218,19 +218,33 @@ func (s *bgAuthService) GetLoginVerifyCode(ctx context.Context, params BgGetLogi
 	return true, nil
 }
 
-// LoginByCookie 通过已配置的 Cookie 直接验证登录态。
+// WhoAmI 通过已配置的 Cookie 验证当前会话身份并返回用户信息。
 // 业务接口走 sellerCentralClient，所需 Cookie 在 TemuBrowserConfig.SellerCentralCookie 中配置。
 // 如传入非空 region，会先切换 regionClient 的 BaseURL/Cookie 再做校验。
-func (s *bgAuthService) LoginByCookie(ctx context.Context, region string) error {
+//
+// 副作用：自动把返回 MallList 中的第一个 MallId 设到 Client 上（SetMallId），
+// 后续业务接口无需调用方再单独 SetMallId。若账号下有多个 mall，会打 WARN 日志，
+// 调用方可显式 SetMallId 覆盖。
+func (s *bgAuthService) WhoAmI(ctx context.Context, region string) (entity.UserInfo, error) {
 	if region != "" {
 		if err := s.client.UseRegion(region); err != nil {
-			return err
+			return entity.UserInfo{}, err
 		}
 	}
-	if _, err := s.GetSellerCentralUserInfo(ctx); err != nil {
-		return fmt.Errorf("通过 Cookie 登录校验失败: %w", err)
+	userInfo, err := s.GetSellerCentralUserInfo(ctx)
+	if err != nil {
+		return entity.UserInfo{}, fmt.Errorf("Cookie 身份校验失败: %w", err)
 	}
-	return nil
+
+	if n := len(userInfo.MallList); n > 0 {
+		first := userInfo.MallList[0]
+		s.client.SetMallId(first.MallId)
+		if n > 1 {
+			s.client.Logger.Warnf("账号下存在 %d 个 mall，默认使用第一个 mallId=%d (%s)；如需切换请显式调用 SetMallId",
+				n, first.MallId, first.MallName)
+		}
+	}
+	return userInfo, nil
 }
 
 // // 获取用户信息 api/seller/auth/userInfo

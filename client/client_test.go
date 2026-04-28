@@ -132,19 +132,15 @@ func TestLogin(t *testing.T) {
 	t.Logf("获取用户信息成功: %+v", userInfo)
 }
 
-// 测试通过 Cookie 直接登录并获取用户信息
+// 测试通过 Cookie 验证身份
 // 依赖 config.SellerCentralCookie 已配置；可选 region 由 TEMU_REGION 指定
-func TestLoginByCookie(t *testing.T) {
-
-	if err := temuClient.Services.BgAuthService.LoginByCookie(ctx, ""); err != nil {
-		t.Fatalf("通过 Cookie 登录失败 (region=%q): %v", "", err)
-	}
-
-	userInfo, err := temuClient.Services.BgAuthService.GetSellerCentralUserInfo(ctx)
+func TestWhoAmI(t *testing.T) {
+	region := os.Getenv("TEMU_REGION")
+	userInfo, err := temuClient.Services.BgAuthService.WhoAmI(ctx, region)
 	if err != nil {
-		t.Fatalf("获取用户信息失败: %v", err)
+		t.Fatalf("WhoAmI 失败 (region=%q): %v", region, err)
 	}
-	t.Logf("获取用户信息成功: %+v", userInfo)
+	t.Logf("WhoAmI 成功: %+v", userInfo)
 	assert.NotEmpty(t, userInfo)
 }
 
@@ -212,7 +208,7 @@ func TestUpdateStock(t *testing.T) {
 		t.Skip("未设置 TEMU_TEST_UPDATE_STOCK，跳过修改库存用例")
 	}
 
-	// TestLoginByCookie(t)
+	// TestWhoAmI(t)
 	// if t.Failed() {
 	// 	t.FailNow()
 	// }
