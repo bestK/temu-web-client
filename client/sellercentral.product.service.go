@@ -61,12 +61,13 @@ func (s productService) Query(ctx context.Context, params ProductQueryParams) (i
 	total, totalPages, isLastPage = parseResponseTotal(params.Page, params.PageSize, result.Result.Total)
 	if !isLastPage {
 		params.Page++
-		nextItems, nextTotal, _, _, err := s.Query(ctx, params) // 递归获取剩余页
+		nextItems, _, _, _, err := s.Query(ctx, params) // 递归获取剩余页；total/totalPages 以首页为准
 		if err != nil {
 			return items, total, totalPages, isLastPage, err
 		}
 		items = append(items, nextItems...)
-		total += nextTotal
 	}
+	// 递归完成后调用方获得了全量数据
+	isLastPage = true
 	return items, total, totalPages, isLastPage, nil
 }

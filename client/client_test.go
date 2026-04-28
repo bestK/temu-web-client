@@ -193,6 +193,62 @@ func TestCustomizedInformation(t *testing.T) {
 	assert.Equal(t, true, gotIsLastPage)
 }
 
+// TestProductQuery 测试商品列表分页查询接口
+// /visage-agent-seller/product/skc/pageQuery
+//
+// 环境变量：
+//
+//	TEMU_MALL_ID         必填，店铺 mallId
+//	TEMU_PRODUCT_PAGE    可选，起始页码（默认 1）
+//	TEMU_PRODUCT_SIZE    可选，每页数量（默认 20）
+//	TEMU_PRODUCT_NAME    可选，按名称模糊过滤
+//	TEMU_PRODUCT_STATUS  可选，在售状态：1=在售 0=下架
+func TestProductQuery(t *testing.T) {
+	var mallId int
+	if v := os.Getenv("TEMU_MALL_ID"); v != "" {
+		fmt.Sscanf(v, "%d", &mallId)
+	}
+	if mallId == 0 {
+		t.Skip("未提供 TEMU_MALL_ID，跳过")
+	}
+	temuClient.SetMallId(mallId)
+
+	page, pageSize := 1, 20
+	if v := os.Getenv("TEMU_PRODUCT_PAGE"); v != "" {
+		fmt.Sscanf(v, "%d", &page)
+	}
+	if v := os.Getenv("TEMU_PRODUCT_SIZE"); v != "" {
+		fmt.Sscanf(v, "%d", &pageSize)
+	}
+
+	params := ProductQueryParams{}
+	params.Page = page
+	params.PageSize = pageSize
+	if name := os.Getenv("TEMU_PRODUCT_NAME"); name != "" {
+		params.ProductName = name
+	}
+	if v := os.Getenv("TEMU_PRODUCT_STATUS"); v != "" {
+		var st int
+		fmt.Sscanf(v, "%d", &st)
+		params.SkcSiteStatus = null.NewInt(int64(st), true)
+	}
+
+	items, total, totalPages, isLastPage, err := temuClient.Services.ProductService.Query(ctx, params)
+	if err != nil {
+		t.Fatalf("查询商品列表失败: %v", err)
+	}
+	t.Logf("查询商品列表成功: total=%d totalPages=%d isLastPage=%v 当前条数=%d",
+		total, totalPages, isLastPage, len(items))
+	max := 5
+	if len(items) < max {
+		max = len(items)
+	}
+	for i, p := range items[:max] {
+		t.Logf("[%d] productId=%d skcId=%d name=%s", i, p.ProductId, p.ProductSkcId, p.ProductName)
+	}
+	assert.Equal(t, true, isLastPage, "Query 应一直递归到最后一页")
+}
+
 // TestUpdateStock 测试修改库存接口。
 //
 // 由于会真实修改远端库存，默认跳过；通过环境变量启用：

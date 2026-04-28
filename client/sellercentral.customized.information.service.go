@@ -50,12 +50,12 @@ func (s customizedInformationService) Query(ctx context.Context, params Customiz
 	total, totalPages, isLastPage = parseResponseTotal(params.Page, params.PageSize, result.Result.Total)
 	if !isLastPage {
 		params.Page++
-		nextItems, nextTotal, _, _, err := s.Query(ctx, params) // 递归获取剩余页
+		nextItems, _, _, _, err := s.Query(ctx, params) // 递归获取剩余页；total/totalPages 以首页为准
 		if err != nil {
 			return items, total, totalPages, isLastPage, err
 		}
 		items = append(items, nextItems...)
-		total += nextTotal
 	}
+	isLastPage = true
 	return items, total, totalPages, isLastPage, nil
 }
