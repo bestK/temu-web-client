@@ -57,7 +57,32 @@ type Client struct {
 	// 多 region 支持
 	Region  string                         // 当前激活的 region 名
 	Regions map[string]config.RegionConfig // 全部 region 配置
+
+	// 底层 resty 客户端，复用同样的 Cookie / Header / 重试 / Anti-Content 配置，
+	// 供调用方直接发起未封装的接口请求。通过 OAuthClient() / SellerCentralClient() / RegionClient() 访问。
+	oAuthClient         *resty.Client
+	sellerCentralClient *resty.Client
+	regionClient        *resty.Client
 }
+
+// OAuthClient 返回 OAuth/登录入口（seller.kuajingmaihuo.com）的 resty 客户端。
+// 可用它直接发起本库尚未封装的 OAuth 域接口，例如：
+//
+//	resp, err := client.OAuthClient().R().SetBody(params).Post("/bg/quiet/api/xxx")
+func (c *Client) OAuthClient() *resty.Client { return c.oAuthClient }
+
+// SellerCentralClient 返回卖家中心主域（agentseller.temu.com）的 resty 客户端。
+// 大部分业务接口都在这里，未封装的接口可直接通过它调用：
+//
+//	resp, err := client.SellerCentralClient().R().
+//	    SetHeader("mallid", fmt.Sprintf("%d", client.MallId)).
+//	    SetBody(params).
+//	    Post("/some/un-wrapped/api")
+func (c *Client) SellerCentralClient() *resty.Client { return c.sellerCentralClient }
+
+// RegionClient 返回当前激活 region 的 resty 客户端（agentseller-{region}.temu.com）。
+// 仅在配置了 Region 时有意义，未配置时它的 BaseURL 与 SellerCentralClient() 相同但不带 region cookie。
+func (c *Client) RegionClient() *resty.Client { return c.regionClient }
 
 func NewClient(config config.TemuBrowserConfig) *Client {
 	var logger resty.Logger
@@ -92,6 +117,10 @@ func NewClient(config config.TemuBrowserConfig) *Client {
 	oAuthClient := newRestyClient(config, logger, config.BaseUrl)
 	sellerCentralClient := newRestyClient(config, logger, config.SellerCentralBaseUrl)
 	regionClient := newRestyClient(config, logger, config.SellerCentralBaseUrl)
+
+	client.oAuthClient = oAuthClient
+	client.sellerCentralClient = sellerCentralClient
+	client.regionClient = regionClient
 
 	xService := service{
 		debug:               config.Debug,
