@@ -50,7 +50,7 @@ func (s productService) Query(ctx context.Context, params ProductQueryParams) (i
 		SetContext(ctx).
 		SetHeader("mallid", fmt.Sprintf("%d", s.client.MallId)).
 		SetBody(params).
-		Post("/bg-visage-mms/product/skc/pageQuery")
+		Post("/visage-agent-seller/product/skc/pageQuery")
 
 	if err = recheckError(resp, result.Response, err); err != nil {
 		s.client.Logger.Errorf("查询商品列表失败: %v %+v", err, string(resp.Body()))
