@@ -132,6 +132,22 @@ func TestLogin(t *testing.T) {
 	t.Logf("获取用户信息成功: %+v", userInfo)
 }
 
+// 测试通过 Cookie 直接登录并获取用户信息
+// 依赖 config.SellerCentralCookie 已配置；可选 region 由 TEMU_REGION 指定
+func TestLoginByCookie(t *testing.T) {
+
+	if err := temuClient.Services.BgAuthService.LoginByCookie(ctx, ""); err != nil {
+		t.Fatalf("通过 Cookie 登录失败 (region=%q): %v", "", err)
+	}
+
+	userInfo, err := temuClient.Services.BgAuthService.GetSellerCentralUserInfo(ctx)
+	if err != nil {
+		t.Fatalf("获取用户信息失败: %v", err)
+	}
+	t.Logf("获取用户信息成功: %+v", userInfo)
+	assert.NotEmpty(t, userInfo)
+}
+
 func TestRecentOrder(t *testing.T) {
 	TestLogin(t)
 	// 查询订单列表
@@ -179,6 +195,90 @@ func TestCustomizedInformation(t *testing.T) {
 	assert.Equal(t, 2, gotTotal)
 	assert.Equal(t, 1, gotTotalPages)
 	assert.Equal(t, true, gotIsLastPage)
+}
+
+// TestUpdateStock 测试修改库存接口。
+//
+// 由于会真实修改远端库存，默认跳过；通过环境变量启用：
+//
+//	TEMU_TEST_UPDATE_STOCK=1   开启此用例
+//	TEMU_PRODUCT_ID            商品 ID
+//	TEMU_PRODUCT_SKU_ID        商品 SKU ID
+//	TEMU_STOCK_DIFF            库存增量（必填，可正可负；服务端不接受 0）
+//
+// 流程：先 Query 当前库存 → 用 CurrentStockAvailable + StockDiff 调用 Update。
+func TestUpdateStock(t *testing.T) {
+	if os.Getenv("TEMU_TEST_UPDATE_STOCK") == "" {
+		t.Skip("未设置 TEMU_TEST_UPDATE_STOCK，跳过修改库存用例")
+	}
+
+	// TestLoginByCookie(t)
+	// if t.Failed() {
+	// 	t.FailNow()
+	// }
+
+	var (
+		mallId       int
+		productId    int64
+		productSkuId int
+		stockDiff    int
+	)
+	if v := os.Getenv("TEMU_MALL_ID"); v != "" {
+		fmt.Sscanf(v, "%d", &mallId)
+	}
+	if v := os.Getenv("TEMU_PRODUCT_ID"); v != "" {
+		fmt.Sscanf(v, "%d", &productId)
+	}
+	if v := os.Getenv("TEMU_PRODUCT_SKU_ID"); v != "" {
+		fmt.Sscanf(v, "%d", &productSkuId)
+	}
+	if v := os.Getenv("TEMU_STOCK_DIFF"); v != "" {
+		fmt.Sscanf(v, "%d", &stockDiff)
+	}
+	if mallId == 0 || productId == 0 || productSkuId == 0 {
+		t.Skip("未提供 TEMU_MALL_ID / TEMU_PRODUCT_ID / TEMU_PRODUCT_SKU_ID，跳过")
+	}
+
+	temuClient.SetMallId(mallId)
+
+	// 1. 查询当前库存
+	stockList, err := temuClient.Services.StockService.QueryBtgProductStockInfo(ctx, QueryBtgProductStockInfoRequestParams{
+		ProductId:        null.NewInt(productId, true),
+		ProductSkuIdList: []int{productSkuId},
+	})
+	if err != nil {
+		t.Fatalf("查询当前库存失败: %v", err)
+	}
+	if len(stockList) == 0 {
+		t.Fatalf("未查询到 productSkuId=%d 的库存", productSkuId)
+	}
+	stock := stockList[0]
+	if len(stock.WarehouseStockList) == 0 {
+		t.Fatalf("productSkuId=%d 没有任何仓库库存", productSkuId)
+	}
+	wh := stock.WarehouseStockList[0]
+	t.Logf("当前库存: skuId=%d warehouse=%s available=%d shippingMode=%d",
+		stock.ProductSkuId, wh.WarehouseInfo.WarehouseId, wh.StockAvailable, stock.ShippingMode)
+
+	// 2. 提交修改（diff=0 即无副作用的连通性测试）
+	ok, err := temuClient.Services.StockService.UpdateMmsBtgProductSalesStock(ctx, UpdateMmsBtgProductSalesStockRequestParams{
+		ProductId: int(productId),
+		SkuStockChangeList: []SkuStockChange{
+			{
+				ProductSkuId:          productSkuId,
+				StockDiff:             stockDiff,
+				CurrentStockAvailable: wh.StockAvailable,
+				CurrentShippingMode:   stock.ShippingMode,
+				WarehouseId:           wh.WarehouseInfo.WarehouseId,
+			},
+		},
+		IsCheckVersion: true,
+	})
+	if err != nil {
+		t.Fatalf("修改库存失败: %v", err)
+	}
+	t.Logf("修改库存返回: success=%v (diff=%d)", ok, stockDiff)
+	assert.True(t, ok)
 }
 
 func TestFinanceAccountFunds(t *testing.T) {

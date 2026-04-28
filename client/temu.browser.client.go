@@ -22,11 +22,18 @@ import (
 	"github.com/goccy/go-json"
 )
 
+// service 持有 3 个职责清晰的 resty 客户端：
+//   - oAuthClient:         指向 seller.kuajingmaihuo.com，全局账号/OAuth 登录入口（不随 region 变化）
+//   - sellerCentralClient: 指向全局默认 Seller Central（agentseller.temu.com），不随 region 变化，
+//     用于显式访问 global 卖家中心（即便当前激活了非 global region）
+//   - regionClient:        指向当前激活 region 的 Seller Central（agentseller-{region}.temu.com），
+//     由 applyRegionConfig 动态切换 BaseURL 与 Cookie，业务接口默认走这里
 type service struct {
 	debug               bool          // Is debug mode
 	logger              resty.Logger  // Log
-	httpClient          *resty.Client // HTTP client
-	sellerCentralClient *resty.Client // SellerCentral专用客户端
+	oAuthClient         *resty.Client // 登录入口客户端（kuajingmaihuo）
+	sellerCentralClient *resty.Client // 全局 Seller Central 客户端（固定 agentseller.temu.com）
+	regionClient        *resty.Client // 当前 region 的 Seller Central 客户端（动态）
 }
 
 type services struct {
@@ -46,6 +53,10 @@ type Client struct {
 	BaseUrl              string
 	SellerCentralBaseUrl string
 	MallId               int
+
+	// 多 region 支持
+	Region  string                         // 当前激活的 region 名
+	Regions map[string]config.RegionConfig // 全部 region 配置
 }
 
 func NewClient(config config.TemuBrowserConfig) *Client {
@@ -78,180 +89,30 @@ func NewClient(config config.TemuBrowserConfig) *Client {
 	}
 	client.TimeLocation = loc
 
-	httpClient := resty.New().
-		SetDebug(config.Debug).
-		EnableTrace().
-		SetBaseURL(config.BaseUrl).
-		SetHeaders(map[string]string{
-			"Content-Type": "application/json",
-			"Accept":       "application/json",
-		}).
-		SetHeader("User-Agent", config.UserAgent).
-		SetAllowGetMethodPayload(true).
-		SetTimeout(config.Timeout * time.Second).
-		SetTransport(&http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !config.VerifySSL},
-			DialContext: (&net.Dialer{
-				Timeout: config.Timeout * time.Second,
-			}).DialContext,
-		}).
-		SetRedirectPolicy(resty.RedirectPolicyFunc(func(req *http.Request, via []*http.Request) error {
-			if req.Response.StatusCode == 302 {
-				return nil
-			}
-			return http.ErrUseLastResponse
-		})).
-		OnBeforeRequest(func(client *resty.Client, request *resty.Request) error {
-			values := make(map[string]any)
-			if request.Body != nil {
-				b, e := json.Marshal(request.Body)
-				if e != nil {
-					return e
-				}
-
-				e = json.Unmarshal(b, &values)
-				if e != nil {
-					return e
-				}
-			}
-			// 设置请求头中的Anti-Content
-			antiContent, err := utils.GetAntiContent()
-			if err != nil {
-				return err
-			}
-			request.SetHeader("Anti-Content", antiContent)
-			return nil
-		}).
-		SetRetryCount(3).
-		SetRetryWaitTime(time.Duration(500) * time.Millisecond).
-		SetRetryMaxWaitTime(time.Duration(1) * time.Second).
-		AddRetryCondition(func(response *resty.Response, err error) bool {
-			if response == nil {
-				return false
-			}
-
-			retry := response.StatusCode() == http.StatusTooManyRequests
-			if !retry {
-				r := struct {
-					Success   bool   `json:"success"`
-					ErrorCode int    `json:"errorCode"`
-					ErrorMsg  string `json:"errorMsg"`
-				}{}
-				retry = json.Unmarshal(response.Body(), &r) == nil &&
-					!r.Success &&
-					r.ErrorCode == 4000000 &&
-					strings.EqualFold(r.ErrorMsg, "SYSTEM_EXCEPTION")
-			}
-			if retry {
-				// 重新设置 Anti-Content
-				antiContent, err := utils.GetAntiContent()
-				if err != nil {
-					logger.Errorf("重新获取 Anti-Content 失败: %v", err)
-					return false
-				}
-				response.Request.SetHeader("Anti-Content", antiContent)
-
-				logger.Debugf("重试请求，URL: %s", response.Request.URL)
-			}
-			return retry
-		})
-
-	if config.Proxy != "" {
-		httpClient.SetProxy(config.Proxy)
-	}
-	httpClient.JSONMarshal = json.Marshal
-	httpClient.JSONUnmarshal = json.Unmarshal
-
-	sellerCentralClient := resty.New().
-		SetDebug(config.Debug).
-		EnableTrace().
-		SetBaseURL(config.SellerCentralBaseUrl).
-		SetHeaders(map[string]string{
-			"Content-Type": "application/json",
-			"Accept":       "application/json",
-		}).
-		SetHeader("User-Agent", config.UserAgent).
-		SetAllowGetMethodPayload(true).
-		SetTimeout(config.Timeout * time.Second).
-		SetTransport(&http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !config.VerifySSL},
-			DialContext: (&net.Dialer{
-				Timeout: config.Timeout * time.Second,
-			}).DialContext,
-		}).
-		SetRedirectPolicy(resty.RedirectPolicyFunc(func(req *http.Request, via []*http.Request) error {
-			if req.Response.StatusCode == 302 {
-				return nil
-			}
-			return http.ErrUseLastResponse
-		})).
-		OnBeforeRequest(func(client *resty.Client, request *resty.Request) error {
-			values := make(map[string]any)
-			if request.Body != nil {
-				b, e := json.Marshal(request.Body)
-				if e != nil {
-					return e
-				}
-
-				e = json.Unmarshal(b, &values)
-				if e != nil {
-					return e
-				}
-			}
-			// 设置请求头中的Anti-Content
-			antiContent, err := utils.GetAntiContent()
-			if err != nil {
-				return err
-			}
-			request.SetHeader("Anti-Content", antiContent)
-			return nil
-		}).
-		SetRetryCount(3).
-		SetRetryWaitTime(time.Duration(500) * time.Millisecond).
-		SetRetryMaxWaitTime(time.Duration(1) * time.Second).
-		AddRetryCondition(func(response *resty.Response, err error) bool {
-			if response == nil {
-				return false
-			}
-
-			retry := response.StatusCode() == http.StatusTooManyRequests
-			if !retry {
-				r := struct {
-					Success   bool   `json:"success"`
-					ErrorCode int    `json:"errorCode"`
-					ErrorMsg  string `json:"errorMsg"`
-				}{}
-				retry = json.Unmarshal(response.Body(), &r) == nil &&
-					!r.Success &&
-					r.ErrorCode == 4000000 &&
-					strings.EqualFold(r.ErrorMsg, "SYSTEM_EXCEPTION")
-			}
-			if retry {
-				// 重新设置 Anti-Content
-				antiContent, err := utils.GetAntiContent()
-				if err != nil {
-					logger.Errorf("重新获取 Anti-Content 失败: %v", err)
-					return false
-				}
-				response.Request.SetHeader("Anti-Content", antiContent)
-
-				logger.Debugf("重试请求，URL: %s", response.Request.URL)
-			}
-			return retry
-		})
-
-	if config.Proxy != "" {
-		sellerCentralClient.SetProxy(config.Proxy)
-	}
-
-	sellerCentralClient.JSONMarshal = json.Marshal
-	sellerCentralClient.JSONUnmarshal = json.Unmarshal
+	oAuthClient := newRestyClient(config, logger, config.BaseUrl)
+	sellerCentralClient := newRestyClient(config, logger, config.SellerCentralBaseUrl)
+	regionClient := newRestyClient(config, logger, config.SellerCentralBaseUrl)
 
 	xService := service{
 		debug:               config.Debug,
 		logger:              logger,
-		httpClient:          httpClient,
+		oAuthClient:         oAuthClient,
 		sellerCentralClient: sellerCentralClient,
+		regionClient:        regionClient,
+	}
+
+	// 卖家中心主域 Cookie：应用到 sellerCentralClient
+	if config.SellerCentralCookie != "" {
+		sellerCentralClient.SetHeader("Cookie", config.SellerCentralCookie)
+	}
+
+	// region 专属接口（可选）：启动时应用激活 region 的 Cookie/BaseURL 到 regionClient
+	client.Regions = config.Regions
+	if config.Region != "" {
+		if rc, ok := config.Regions[config.Region]; ok {
+			client.Region = config.Region
+			applyRegionConfig(client, regionClient, rc)
+		}
 	}
 
 	client.Services = services{
@@ -318,6 +179,120 @@ func parseResponseTotal(currentPage, pageSize, total int) (n, totalPages int, is
 
 func (c *Client) SetMallId(mallId int) {
 	c.MallId = mallId
+}
+
+// newRestyClient 构造一个共用同样配置（debug / 超时 / TLS / Anti-Content / 重试 / 代理）的 resty 客户端。
+func newRestyClient(cfg config.TemuBrowserConfig, logger resty.Logger, baseURL string) *resty.Client {
+	c := resty.New().
+		SetDebug(cfg.Debug).
+		EnableTrace().
+		SetBaseURL(baseURL).
+		SetHeaders(map[string]string{
+			"priority":     "u=1, i",
+			"pragma":       "no-cache",
+			"Content-Type": "application/json",
+			"Accept":       "application/json",
+			"User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+		}).
+		SetAllowGetMethodPayload(true).
+		SetTimeout(cfg.Timeout * time.Second).
+		SetTransport(&http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !cfg.VerifySSL},
+			DialContext: (&net.Dialer{
+				Timeout: cfg.Timeout * time.Second,
+			}).DialContext,
+		}).
+		SetRedirectPolicy(resty.RedirectPolicyFunc(func(req *http.Request, via []*http.Request) error {
+			if req.Response.StatusCode == 302 {
+				return nil
+			}
+			return http.ErrUseLastResponse
+		})).
+		OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
+			values := make(map[string]any)
+			if request.Body != nil {
+				b, e := json.Marshal(request.Body)
+				if e != nil {
+					return e
+				}
+				if e = json.Unmarshal(b, &values); e != nil {
+					return e
+				}
+			}
+			antiContent, err := utils.GetAntiContent()
+			if err != nil {
+				return err
+			}
+			request.SetHeader("Anti-Content", antiContent)
+			return nil
+		}).
+		SetRetryCount(3).
+		SetRetryWaitTime(time.Duration(500) * time.Millisecond).
+		SetRetryMaxWaitTime(time.Duration(1) * time.Second).
+		AddRetryCondition(func(response *resty.Response, err error) bool {
+			if response == nil {
+				return false
+			}
+			retry := response.StatusCode() == http.StatusTooManyRequests
+			if !retry {
+				r := struct {
+					Success   bool   `json:"success"`
+					ErrorCode int    `json:"errorCode"`
+					ErrorMsg  string `json:"errorMsg"`
+				}{}
+				retry = json.Unmarshal(response.Body(), &r) == nil &&
+					!r.Success &&
+					r.ErrorCode == 4000000 &&
+					strings.EqualFold(r.ErrorMsg, "SYSTEM_EXCEPTION")
+			}
+			if retry {
+				antiContent, err := utils.GetAntiContent()
+				if err != nil {
+					logger.Errorf("重新获取 Anti-Content 失败: %v", err)
+					return false
+				}
+				response.Request.SetHeader("Anti-Content", antiContent)
+				logger.Debugf("重试请求，URL: %s", response.Request.URL)
+			}
+			return retry
+		})
+
+	if cfg.Proxy != "" {
+		c.SetProxy(cfg.Proxy)
+	}
+	c.JSONMarshal = json.Marshal
+	c.JSONUnmarshal = json.Unmarshal
+	return c
+}
+
+// applyRegionConfig 把单个 region 的 Cookie / BaseURL 应用到 regionClient。
+// 不影响 oAuthClient 与 sellerCentralClient（这两个是固定全局域名）。
+func applyRegionConfig(_ *Client, regionClient *resty.Client, rc config.RegionConfig) {
+	if rc.BaseUrl != "" {
+		regionClient.SetBaseURL(rc.BaseUrl)
+	}
+	if rc.Cookie != "" {
+		regionClient.SetHeader("Cookie", rc.Cookie)
+	}
+}
+
+// UseRegion 切换到指定 region；该 region 必须已经在 Regions 中注册
+func (c *Client) UseRegion(region string) error {
+	rc, ok := c.Regions[region]
+	if !ok {
+		return fmt.Errorf("region %q 未在配置中注册", region)
+	}
+	c.Region = region
+	applyRegionConfig(c, c.Services.BgAuthService.regionClient, rc)
+	return nil
+}
+
+// RegisterRegion 动态注册或覆盖一个 region 的 Cookie 配置
+func (c *Client) RegisterRegion(region string, rc config.RegionConfig) {
+	if c.Regions == nil {
+		c.Regions = map[string]config.RegionConfig{}
+	}
+	c.Regions[region] = rc
 }
 
 func (c *Client) CheckMallId() error {

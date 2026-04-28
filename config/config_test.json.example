@@ -1,0 +1,20 @@
+{
+    "debug": true,
+    "base_url": "https://seller.kuajingmaihuo.com",
+    "seller_central_base_url": "https://agentseller.temu.com",
+    "timeout": 10,
+    "verify_ssl": true,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "proxy": "",
+    "seller_central_cookie": "<在浏览器中打开 https://agentseller.temu.com 登录后，从 DevTools 复制完整 Cookie 串粘贴到这里>",
+    "regions": {
+        "us": {
+            "cookie": "",
+            "base_url": "https://agentseller-us.temu.com"
+        },
+        "eu": {
+            "cookie": "",
+            "base_url": "https://agentseller-eu.temu.com"
+        }
+    }
+}

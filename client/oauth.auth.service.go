@@ -72,7 +72,7 @@ func (s *bgAuthService) GetPublicKey() (string, string, error) {
 		} `json:"result"`
 	}{}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.oAuthClient.R().
 		SetResult(&result).
 		Post("/bg/quiet/api/mms/key/login")
 
@@ -108,7 +108,7 @@ func (s *bgAuthService) Login(ctx context.Context, params BgLoginRequestParams) 
 		} `json:"result"`
 	}{}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.oAuthClient.R().
 		SetContext(ctx).
 		SetResult(&result).
 		SetBody(params).
@@ -135,7 +135,7 @@ func (s *bgAuthService) ObtainCode(ctx context.Context, params BgObtainCodeReque
 		} `json:"result"`
 	}{}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.oAuthClient.R().
 		SetContext(ctx).
 		SetResult(&result).
 		SetBody(params).
@@ -151,7 +151,7 @@ func (s *bgAuthService) ObtainCode(ctx context.Context, params BgObtainCodeReque
 
 // LoginTemuAccount 登录 Temu 账号
 func (s *bgAuthService) LoginTemuAccount(ctx context.Context, url string) (string, []*http.Cookie, error) {
-	resp, err := s.httpClient.R().
+	resp, err := s.oAuthClient.R().
 		SetContext(ctx).
 		SetDoNotParseResponse(true).
 		Get(url)
@@ -200,7 +200,7 @@ func (s *bgAuthService) GetLoginVerifyCode(ctx context.Context, params BgGetLogi
 		normal.Response `json:",inline"`
 	}{}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.oAuthClient.R().
 		SetContext(ctx).
 		SetResult(&result).
 		SetBody(params).
@@ -218,6 +218,21 @@ func (s *bgAuthService) GetLoginVerifyCode(ctx context.Context, params BgGetLogi
 	return true, nil
 }
 
+// LoginByCookie 通过已配置的 Cookie 直接验证登录态。
+// 业务接口走 sellerCentralClient，所需 Cookie 在 TemuBrowserConfig.SellerCentralCookie 中配置。
+// 如传入非空 region，会先切换 regionClient 的 BaseURL/Cookie 再做校验。
+func (s *bgAuthService) LoginByCookie(ctx context.Context, region string) error {
+	if region != "" {
+		if err := s.client.UseRegion(region); err != nil {
+			return err
+		}
+	}
+	if _, err := s.GetSellerCentralUserInfo(ctx); err != nil {
+		return fmt.Errorf("通过 Cookie 登录校验失败: %w", err)
+	}
+	return nil
+}
+
 // // 获取用户信息 api/seller/auth/userInfo
 func (s *bgAuthService) GetSellerCentralUserInfo(ctx context.Context) (entity.UserInfo, error) {
 	var result = struct {
@@ -225,13 +240,9 @@ func (s *bgAuthService) GetSellerCentralUserInfo(ctx context.Context) (entity.Us
 		Result entity.UserInfo `json:"result"`
 	}{}
 
-	if err := s.client.CheckMallId(); err != nil {
-		return entity.UserInfo{}, err
-	}
-
 	resp, err := s.sellerCentralClient.R().
 		SetContext(ctx).
-		SetHeader("mallid", fmt.Sprintf("%d", s.client.MallId)).
+		SetHeader("Origin", "https://agentseller.temu.com").
 		SetBody(map[string]interface{}{}).
 		SetResult(&result).
 		Post("/api/seller/auth/userInfo")
@@ -259,7 +270,7 @@ func (s *bgAuthService) GetAccountUserInfo(ctx context.Context) ([]entity.Accoun
 		} `json:"result"`
 	}{}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.oAuthClient.R().
 		SetContext(ctx).
 		SetResult(&result).
 		SetBody(map[string]interface{}{}).

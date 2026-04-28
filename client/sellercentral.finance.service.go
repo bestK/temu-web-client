@@ -25,7 +25,7 @@ func (s financeService) AccountFunds(ctx context.Context) (d entity.FinanceAccou
 		return d, err
 	}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.sellerCentralClient.R().
 		SetResult(&result).
 		SetContext(ctx).
 		SetHeader("mallid", fmt.Sprintf("%d", s.client.MallId)).

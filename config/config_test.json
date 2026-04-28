@@ -1,9 +1,0 @@
-{
-    "debug": true,
-    "base_url": "https://seller.kuajingmaihuo.com",
-    "seller_central_base_url": "https://agentseller.temu.com",
-    "timeout": 10,
-    "verify_ssl": true,
-    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "proxy": ""
-}

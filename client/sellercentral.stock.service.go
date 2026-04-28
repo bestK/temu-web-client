@@ -47,7 +47,7 @@ func (m UpdateMmsBtgProductSalesStockRequestParams) validate() error {
 	)
 }
 
-// 查询SKU库存信息 /marvel-mms/cn/api/kiana/starlaod/btg/sales/stock/queryBtgProductStockInfo
+// 查询SKU库存信息 /darwin-mms/api/kiana/ghost/btg/sales/stock/queryBtgProductStockInfo
 func (s stockService) QueryBtgProductStockInfo(ctx context.Context, params QueryBtgProductStockInfoRequestParams) ([]entity.ProductStock, error) {
 	var result = struct {
 		normal.Response `json:",inline"`
@@ -60,12 +60,12 @@ func (s stockService) QueryBtgProductStockInfo(ctx context.Context, params Query
 		return nil, err
 	}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.sellerCentralClient.R().
 		SetHeader("mallid", fmt.Sprintf("%d", s.client.MallId)).
 		SetResult(&result).
 		SetContext(ctx).
 		SetBody(params).
-		Post("/marvel-mms/cn/api/kiana/starlaod/btg/sales/stock/queryBtgProductStockInfo")
+		Post("/darwin-mms/api/kiana/ghost/btg/sales/stock/queryBtgProductStockInfo")
 	if err = recheckError(resp, result.Response, err); err != nil {
 		s.logger.Errorf("查询SKU库存信息失败: %v %+v", err, string(resp.Body()))
 		return nil, err
@@ -74,7 +74,7 @@ func (s stockService) QueryBtgProductStockInfo(ctx context.Context, params Query
 	return result.Result.ProductStockList, nil
 }
 
-// 修改库存 /marvel-mms/cn/api/kiana/starlaod/btg/sales/stock/updateMmsBtgProductSalesStock
+// 修改库存 /darwin-mms/api/kiana/ghost/btg/sales/stock/updateMmsBtgProductSalesStock
 func (s stockService) UpdateMmsBtgProductSalesStock(ctx context.Context, params UpdateMmsBtgProductSalesStockRequestParams) (bool, error) {
 	if err := params.validate(); err != nil {
 		return false, err
@@ -92,12 +92,12 @@ func (s stockService) UpdateMmsBtgProductSalesStock(ctx context.Context, params 
 		} `json:"result,omitempty"`
 	}{}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.sellerCentralClient.R().
 		SetHeader("mallid", fmt.Sprintf("%d", s.client.MallId)).
 		SetResult(&result).
 		SetContext(ctx).
 		SetBody(params).
-		Post("/marvel-mms/cn/api/kiana/starlaod/btg/sales/stock/updateMmsBtgProductSalesStock")
+		Post("/darwin-mms/api/kiana/ghost/btg/sales/stock/updateMmsBtgProductSalesStock")
 	if err = recheckError(resp, result.Response, err); err != nil {
 		s.logger.Errorf("更新库存失败: %v %+v", err, string(resp.Body()))
 		return false, err

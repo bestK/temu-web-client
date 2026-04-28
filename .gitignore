@@ -1,3 +1,5 @@
  
 
 .idea/
+.vscode/
+config/config_test.json

@@ -45,7 +45,7 @@ func (s productService) Query(ctx context.Context, params ProductQueryParams) (i
 		return nil, 0, 0, false, err
 	}
 
-	resp, err := s.httpClient.R().
+	resp, err := s.sellerCentralClient.R().
 		SetResult(&result).
 		SetContext(ctx).
 		SetHeader("mallid", fmt.Sprintf("%d", s.client.MallId)).
