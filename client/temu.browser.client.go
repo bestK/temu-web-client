@@ -132,7 +132,10 @@ func NewClient(config config.TemuBrowserConfig) *Client {
 		Level: logLevel,
 	}
 
-	if config.Debug {
+	// 优先使用调用方传入的 logger；未传入时按 Debug 选择默认 text/json handler
+	if config.Logger != nil {
+		logger = config.Logger
+	} else if config.Debug {
 		logger = log.NewSlogAdapter(slog.New(slog.NewTextHandler(os.Stdout, opts)))
 	} else {
 		logger = log.NewSlogAdapter(slog.New(slog.NewJSONHandler(os.Stdout, opts)))
