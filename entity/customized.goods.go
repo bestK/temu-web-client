@@ -84,7 +84,7 @@ func (rci RawCustomizedInformation) NormalizedParse() (g gci.GoodsCustomizedInfo
 		return g, fmt.Errorf("no preview items")
 	}
 
-	g = gci.NewGoodsCustomizedInformation()
+	g = gci.NewGoodsCustomizedInformation("")
 	g.SetRawData(rci)
 	surface := gci.NewSurface() // Temu 都只支持一个面的定制
 	kvRegion := make(map[string]gci.Region)
